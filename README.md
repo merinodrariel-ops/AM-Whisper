@@ -41,6 +41,6 @@ Luego agregar al PATH:
 
 ## Notas
 
-- Modelo: tiny (rápido, preciso en español)
+- Modelo: medium (mayor precisión en español)
 - Todo corre local, nada sale a internet
 - Compatible con cualquier Mac (Intel o Apple Silicon)

@@ -51,7 +51,7 @@ local function startTap()
                     os.remove("/tmp/voice_input.wav")
                     os.remove("/tmp/voice_input.txt")
                     hs.timer.doAfter(0.3, startTap)
-                end, {"/tmp/voice_input.wav", "--language", "Spanish", "--model", "tiny", "--output_format", "txt", "--output_dir", "/tmp"}):start()
+                end, {"/tmp/voice_input.wav", "--language", "Spanish", "--model", "medium", "--output_format", "txt", "--output_dir", "/tmp"}):start()
             end
         end
 
