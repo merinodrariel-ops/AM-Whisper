@@ -1,7 +1,7 @@
 # AM-Whisper
 
-Sistema de transcripción de voz local usando Whisper + Hammerspoon para Mac.
-Gratis, sin internet, sin suscripción.
+Sistema de transcripción de voz local usando whisper.cpp + Hammerspoon para Mac.
+Gratis, sin internet, sin suscripción. Transcripción casi instantánea con aceleración Metal en Apple Silicon.
 
 ## Cómo funciona
 
@@ -9,6 +9,17 @@ Gratis, sin internet, sin suscripción.
 - Hablá lo que quieras
 - Presioná **Command derecho** de nuevo para parar y transcribir
 - El texto se pega automáticamente donde tenés el cursor
+- Mientras grabás aparece un medidor de audio en la parte inferior de la pantalla
+
+## Características
+
+- **Velocidad**: whisper.cpp con Metal GPU — transcripción en ~1-2 segundos
+- **Precisión**: modelo large-v3-turbo, optimizado para español
+- **Prompts contextuales**: detecta la app activa y ajusta el vocabulario automáticamente
+  - **Antigravity** (consultorio): términos médicos
+  - **Cursor / VS Code**: terminología de desarrollo
+  - **Claude**: contexto de IA
+- **Medidor de audio**: barra visual en tiempo real mientras grabás
 
 ## Instalación en Mac nueva
 
@@ -22,25 +33,26 @@ Luego agregar al PATH:
 
 ### 2. Instalar dependencias
 
-    brew install ffmpeg sox && brew install --cask hammerspoon && pip3 install openai-whisper
+    brew install sox whisper-cpp && brew install --cask hammerspoon
 
-### 3. Agregar Whisper al PATH
+### 3. Bajar el modelo large-v3-turbo (~1.5 GB)
 
-    PYVER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && echo "export PATH=$HOME/Library/Python/$PYVER/bin:$PATH" >> ~/.zprofile && source ~/.zprofile
+    mkdir -p ~/.cache/whisper && cd ~/.cache/whisper && curl -L "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin" -o ggml-large-v3-turbo.bin
 
-### 4. Bajar el script
+### 4. Bajar el script y enlazarlo
 
+    mkdir -p ~/.hammerspoon
     curl -o ~/.hammerspoon/init.lua https://raw.githubusercontent.com/merinodrariel-ops/AM-Whisper/main/init.lua
 
 ### 5. Activar
 
 1. Abrí Hammerspoon desde Aplicaciones
 2. Habilitá Accesibilidad cuando te lo pida
-3. En la consola de Hammerspoon escribí: hs.reload()
-4. Listo!
+3. Clic en el ícono de Hammerspoon → Reload Config
+4. Listo — aparece "Whisper listo ⚡ Command derecho para grabar"
 
 ## Notas
 
-- Modelo: medium (mayor precisión en español)
 - Todo corre local, nada sale a internet
-- Compatible con cualquier Mac (Intel o Apple Silicon)
+- Compatible con Mac Apple Silicon (M1/M2/M3/M4) — usa Metal para máxima velocidad
+- Para agregar prompts contextuales de otras apps, editá el array `contextPrompts` en `init.lua`
