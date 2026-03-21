@@ -144,71 +144,81 @@ local function startTap()
                 recording = false
                 hs.alert.closeAll()
                 hideMeter()
-                if recordingTask then
-                    recordingTask:terminate()
-                    recordingTask = nil
-                end
                 -- Detenemos el tap mientras transcribe para evitar solapamientos
                 if tap then tap:stop() end
                 hs.alert.show("⏳ Transcribiendo...", 30)
 
-                local onComplete = function(code, stdout, stderr)
-                    hs.alert.closeAll()
+                local function startTranscription()
+                    local onComplete = function(code, stdout, stderr)
+                        hs.alert.closeAll()
 
-                    if code ~= 0 then
-                        hs.alert.show("❌ Error Whisper: " .. (stderr or "desconocido"), 5)
-                        print("Whisper error: " .. (stderr or ""))
-                        hs.timer.doAfter(0.3, startTap)
-                        return
-                    end
-
-                    local f = io.open("/tmp/voice_input.txt")
-                    if f then
-                        local text = f:read("*a")
-                        f:close()
-                        text = text:gsub("^%s*(.-)%s*$", "%1")
-                        if text ~= "" then
-                            hs.pasteboard.setContents(text)
-                            if focusedWindow then focusedWindow:focus() end
-                            hs.timer.doAfter(0.2, function()
-                                hs.eventtap.keyStroke({"cmd"}, "v")
-                                local preview = text:len() > 60 and text:sub(1, 60) .. "…" or text
-                                hs.alert.show("✅ " .. preview, 3)
-                            end)
-                        else
-                            hs.alert.show("⚠️ No se detectó texto", 2)
+                        if code ~= 0 then
+                            hs.alert.show("❌ Error Whisper: " .. (stderr or "desconocido"), 5)
+                            print("Whisper error: " .. (stderr or ""))
+                            hs.timer.doAfter(0.3, startTap)
+                            return
                         end
-                    else
-                        hs.alert.show("❌ Error: no se encontró el archivo de salida", 3)
+
+                        local f = io.open("/tmp/voice_input.txt")
+                        if f then
+                            local text = f:read("*a")
+                            f:close()
+                            text = text:gsub("^%s*(.-)%s*$", "%1")
+                            if text ~= "" then
+                                hs.pasteboard.setContents(text)
+                                if focusedWindow then focusedWindow:focus() end
+                                hs.timer.doAfter(0.2, function()
+                                    hs.eventtap.keyStroke({"cmd"}, "v")
+                                    local preview = text:len() > 60 and text:sub(1, 60) .. "…" or text
+                                    hs.alert.show("✅ " .. preview, 3)
+                                end)
+                            else
+                                hs.alert.show("⚠️ No se detectó texto", 2)
+                            end
+                        else
+                            hs.alert.show("❌ Error: no se encontró el archivo de salida", 3)
+                        end
+
+                        os.remove("/tmp/voice_input.wav")
+                        os.remove("/tmp/voice_input.txt")
+                        hs.timer.doAfter(0.3, startTap)
                     end
 
-                    os.remove("/tmp/voice_input.wav")
-                    os.remove("/tmp/voice_input.txt")
-                    hs.timer.doAfter(0.3, startTap)
+                    local onStream = function(task, stdout, stderr)
+                        if stdout and stdout ~= "" then print("whisper: " .. stdout) end
+                        if stderr and stderr ~= "" then print("whisper: " .. stderr) end
+                        return true
+                    end
+
+                    -- Construir argumentos para whisper-cli
+                    local prompt = getPromptForApp()
+                    local whisperArgs = {
+                        "-m", modelPath,
+                        "-f", "/tmp/voice_input.wav",
+                        "--output-txt",
+                        "-of", "/tmp/voice_input",
+                        "-l", "es",
+                    }
+                    if prompt then
+                        table.insert(whisperArgs, "--prompt")
+                        table.insert(whisperArgs, prompt)
+                    end
+
+                    local whisperTask = hs.task.new(whisperBin, onComplete, onStream, whisperArgs)
+                    whisperTask:start()
                 end
 
-                local onStream = function(task, stdout, stderr)
-                    if stdout and stdout ~= "" then print("whisper: " .. stdout) end
-                    if stderr and stderr ~= "" then print("whisper: " .. stderr) end
-                    return true
+                if recordingTask then
+                    -- SIGINT permite que sox finalice el header WAV correctamente
+                    -- SIGTERM lo mata sin actualizar el tamaño del archivo → whisper trunca
+                    local pid = recordingTask:pid()
+                    recordingTask = nil
+                    hs.task.new("/bin/kill", function()
+                        hs.timer.doAfter(0.5, startTranscription)
+                    end, {"-INT", tostring(pid)}):start()
+                else
+                    startTranscription()
                 end
-
-                -- Construir argumentos para whisper-cli
-                local prompt = getPromptForApp()
-                local whisperArgs = {
-                    "-m", modelPath,
-                    "-f", "/tmp/voice_input.wav",
-                    "--output-txt",
-                    "-of", "/tmp/voice_input",
-                    "-l", "es",
-                }
-                if prompt then
-                    table.insert(whisperArgs, "--prompt")
-                    table.insert(whisperArgs, prompt)
-                end
-
-                local whisperTask = hs.task.new(whisperBin, onComplete, onStream, whisperArgs)
-                whisperTask:start()
             end
         end
 
