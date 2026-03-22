@@ -4,6 +4,7 @@ local tap = nil
 local focusedWindow = nil
 local meterCanvas = nil
 local levelTimer = nil
+local whisperWatchdog = nil
 
 local home = os.getenv("HOME")
 local whisperBin = "/opt/homebrew/bin/whisper-cli"
@@ -150,6 +151,7 @@ local function startTap()
 
                 local function startTranscription()
                     local onComplete = function(code, stdout, stderr)
+                        if whisperWatchdog then whisperWatchdog:stop(); whisperWatchdog = nil end
                         hs.alert.closeAll()
 
                         if code ~= 0 then
@@ -206,6 +208,17 @@ local function startTap()
 
                     local whisperTask = hs.task.new(whisperBin, onComplete, onStream, whisperArgs)
                     whisperTask:start()
+
+                    -- Watchdog: si whisper se cuelga y onComplete nunca llega, el tap queda muerto.
+                    -- A los 120s forzamos el restart para que el usuario pueda volver a grabar.
+                    if whisperWatchdog then whisperWatchdog:stop() end
+                    whisperWatchdog = hs.timer.doAfter(120, function()
+                        whisperWatchdog = nil
+                        whisperTask:terminate()
+                        hs.alert.closeAll()
+                        hs.alert.show("⚠️ Whisper tardó demasiado, reiniciando…", 3)
+                        hs.timer.doAfter(0.3, startTap)
+                    end)
                 end
 
                 if recordingTask then
