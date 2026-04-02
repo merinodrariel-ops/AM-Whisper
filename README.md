@@ -8,6 +8,7 @@ Gratis, sin internet, sin suscripción. Transcripción casi instantánea con ace
 - Presioná **Command derecho** para empezar a grabar
 - Hablá lo que quieras
 - Presioná **Command derecho** de nuevo para parar y transcribir
+- Presioná **Escape** para cancelar una grabación o una transcripción en curso
 - El texto se pega automáticamente donde tenés el cursor
 - Mientras grabás aparece un medidor de audio en la parte inferior de la pantalla
 
@@ -20,6 +21,7 @@ Gratis, sin internet, sin suscripción. Transcripción casi instantánea con ace
   - **Cursor / VS Code**: terminología de desarrollo
   - **Claude**: contexto de IA
 - **Medidor de audio**: barra visual en tiempo real mientras grabás
+- **Cancelación rápida**: `Escape` aborta la grabación o la transcripción actual
 
 ## Instalación en Mac nueva
 
