@@ -17,6 +17,13 @@ local statusTimer = nil
 local home = os.getenv("HOME")
 local whisperBin = "/opt/homebrew/bin/whisper-cli"
 local modelPath = home .. "/.cache/whisper/ggml-large-v3-turbo.bin"
+local rescueDir = home .. "/Documents/AM-Whisper-Rescates"
+local currentSessionBase = nil
+local currentAudioPath = nil
+local currentOutputBase = nil
+local currentTextPath = nil
+
+math.randomseed(os.time())
 
 -- Prompts contextuales según la app enfocada
 local contextPrompts = {
@@ -166,6 +173,19 @@ end
 
 local startTap  -- declaración anticipada (se define más abajo)
 
+local function ensureRescueDir()
+    os.execute('/bin/mkdir -p "' .. rescueDir .. '"')
+end
+
+local function beginRescueSession()
+    ensureRescueDir()
+    local stamp = os.date("%Y%m%d-%H%M%S") .. "-" .. tostring(math.random(1000, 9999))
+    currentSessionBase = rescueDir .. "/dictado-" .. stamp
+    currentAudioPath = currentSessionBase .. ".wav"
+    currentOutputBase = currentSessionBase
+    currentTextPath = currentOutputBase .. ".txt"
+end
+
 local function cleanupTempFiles()
     os.remove("/tmp/voice_input.wav")
     os.remove("/tmp/voice_input.txt")
@@ -191,7 +211,6 @@ local function finishInteraction()
     hideStatus()
     setCancelHotkeyEnabled(false)
     if whisperWatchdog then whisperWatchdog:stop(); whisperWatchdog = nil end
-    cleanupTempFiles()
     -- Reiniciar el tap para garantizar estado limpio
     hs.timer.doAfter(0.1, startTap)
 end
@@ -263,6 +282,7 @@ startTap = function()
                 pendingTranscription = false
                 cancelRequested = false
                 cleanupTempFiles()
+                beginRescueSession()
                 showMeter()
                 setCancelHotkeyEnabled(true)
                 startLevelSampling()
@@ -290,7 +310,7 @@ startTap = function()
                         print("Recording error: " .. (stderr or ""))
                     end
                 end,
-                    {"-d", "/tmp/voice_input.wav"})
+                    {"-d", currentAudioPath})
                 recordingTask:start()
 
             else
@@ -359,15 +379,18 @@ startTranscription = function()
         end
 
         if code ~= 0 then
+            local audioPath = currentAudioPath
             finishInteraction()
-            hs.alert.show("❌ Error Whisper: " .. (stderr or "desconocido"), 5)
+            hs.alert.show("❌ Error Whisper. Audio guardado en Rescates", 5)
+            if audioPath then print("AM-Whisper audio retained: " .. audioPath) end
             print("Whisper error: " .. (stderr or ""))
             return
         end
 
         local text
+        local textPath = currentTextPath
         local readOk, readErr = pcall(function()
-            local f = assert(io.open("/tmp/voice_input.txt"), "no se encontró el archivo de salida")
+            local f = assert(io.open(textPath), "no se encontró el archivo de salida")
             text = f:read("*a") or ""
             f:close()
             text = text:gsub("^%s*(.-)%s*$", "%1")
@@ -383,7 +406,7 @@ startTranscription = function()
         end
 
         if text == "" then
-            hs.alert.show("⚠️ No se detectó texto", 2)
+            hs.alert.show("⚠️ No se detectó texto. Audio guardado en Rescates", 4)
             return
         end
 
@@ -395,11 +418,12 @@ startTranscription = function()
                     hs.eventtap.keyStroke({"cmd"}, "v")
                     local preview = text:len() > 60 and text:sub(1, 60) .. "…" or text
                     hs.alert.show("✅ " .. preview, 3)
+                    if textPath then print("AM-Whisper transcript saved: " .. textPath) end
                 end)
 
                 if not strokeOk then
                     print("Paste error: " .. tostring(strokeErr))
-                    hs.alert.show("⚠️ Transcripto, pero no se pudo pegar", 3)
+                    hs.alert.show("⚠️ Transcripto y copiado. Archivo en Rescates", 4)
                 end
             end)
         end)
@@ -420,9 +444,9 @@ startTranscription = function()
     local prompt = getPromptForApp()
     local whisperArgs = {
         "-m", modelPath,
-        "-f", "/tmp/voice_input.wav",
+        "-f", currentAudioPath,
         "--output-txt",
-        "-of", "/tmp/voice_input",
+        "-of", currentOutputBase,
         "-l", "es",
     }
     if prompt then
@@ -436,18 +460,18 @@ startTranscription = function()
     if not started then
         whisperTask = nil
         finishInteraction()
-        hs.alert.show("❌ No se pudo iniciar Whisper", 3)
+        hs.alert.show("❌ No se pudo iniciar Whisper. Audio guardado en Rescates", 4)
         return
     end
 
-    -- Watchdog: si whisper se cuelga y onComplete nunca llega, limpiamos el estado.
+    -- Aviso no destructivo: para dictados largos, Whisper puede tardar mas de 2 minutos.
     if whisperWatchdog then whisperWatchdog:stop() end
     whisperWatchdog = hs.timer.doAfter(120, function()
         whisperWatchdog = nil
-        cancelRequested = true
-        if whisperTask then whisperTask:terminate() end
-        hs.alert.closeAll()
-        hs.alert.show("⚠️ Whisper tardó demasiado, cancelando…", 3)
+        if whisperTask then
+            showStatus("Sigue transcribiendo...", {red = 0.18, green = 0.36, blue = 0.72, alpha = 0.96})
+            print("AM-Whisper: transcription still running after 120s; keeping audio instead of cancelling.")
+        end
     end)
 end
 

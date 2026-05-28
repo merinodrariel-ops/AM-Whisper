@@ -11,6 +11,23 @@ Gratis, sin internet, sin suscripción. Transcripción casi instantánea con ace
 - Presioná **Escape** para cancelar una grabación o una transcripción en curso
 - El texto se pega automáticamente donde tenés el cursor
 - Mientras grabás aparece un medidor de audio en la parte inferior de la pantalla
+- Cada dictado queda respaldado en `~/Documents/AM-Whisper-Rescates` como `.wav` y, si Whisper llegó a transcribir, como `.txt`
+
+## Transcripción de Videos (Nuevo 🎬)
+
+Para transcribir un video que ya tenés descargado:
+
+1. Abrí la terminal
+2. Escribí `node ` y arrastrá el script `video-transcript.mjs`
+3. Arrastrá el video que querés transcribir
+4. Presioná `Enter`
+
+Ejemplo:
+```bash
+node video-transcript.mjs mi_video.mp4
+```
+
+El resultado se guardará como un archivo `.txt` en la misma carpeta del video.
 
 ## Características
 
