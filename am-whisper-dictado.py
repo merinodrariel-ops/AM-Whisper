@@ -80,6 +80,17 @@ class DictationOverlay:
         y = sh - 130
         self.root.geometry(f"{w}x{h}+{x}+{y}")
         
+        # Evitar tomar el foco en Windows (WS_EX_NOACTIVATE)
+        self.root.update_idletasks()
+        try:
+            hwnd = self.root.winfo_id()
+            GWL_EXSTYLE = -20
+            WS_EX_NOACTIVATE = 0x08000000
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE)
+        except Exception as e:
+            log_print(f"Error al configurar foco de ventana: {e}")
+        
         self.canvas = tk.Canvas(self.root, width=w, height=h, bg="black", highlightthickness=0)
         self.canvas.pack()
         
