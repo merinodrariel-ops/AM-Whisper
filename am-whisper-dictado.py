@@ -239,9 +239,16 @@ def transcribe(wav_path):
                 log_print(f"✨ Texto transcripto con éxito: '{text}'")
                 set_clipboard_text(text)
                 
+                # Destruir el HUD flotante antes de pegar para restaurar el foco del cursor al chat
+                global overlay
+                if overlay:
+                    log_print("Cerrando HUD flotante antes de pegar...")
+                    overlay.stop()
+                    overlay = None
+                
                 # Simular Ctrl + V
                 log_print("Pegando texto en ventana activa (Ctrl+V)...")
-                time.sleep(0.15)
+                time.sleep(0.2)
                 keyboard.press_and_release('ctrl+v')
                 
                 winsound.Beep(1200, 100)
