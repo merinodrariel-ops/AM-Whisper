@@ -187,8 +187,9 @@ def main():
     print("Presiona [Ctrl + C] en esta consola para cerrar el dictado.")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
     
-    # Registrar tecla global
-    keyboard.on_press_key("right ctrl", toggle_recording)
+    # Registrar tecla global (AltGr y Windows Derecho)
+    keyboard.on_press_key("alt gr", toggle_recording)
+    keyboard.on_press_key("right windows", toggle_recording)
     
     # Mantener el script corriendo
     try:
