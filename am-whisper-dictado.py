@@ -18,6 +18,8 @@ import os
 import subprocess
 import tkinter as tk
 import traceback
+import pystray
+from PIL import Image, ImageDraw
 
 # Configuración de audio
 samplerate = 16000
@@ -325,12 +327,61 @@ def poll_queue():
                     overlay_win = None
                 log_print("Proceso de dictado cancelado/finalizado con error.")
                 
+            elif action == 'exit':
+                log_print("Cerrando proceso del dictador por orden del System Tray...")
+                if overlay_win:
+                    overlay_win.stop()
+                root.quit()
+                
     except queue.Empty:
         pass
     
     # Volver a programar el sondeo de cola en 50ms
     if root:
         root.after(50, poll_queue)
+
+
+def setup_tray():
+    """Crea y ejecuta el ícono del System Tray en un hilo secundario."""
+    try:
+        # Generar una imagen circular roja de 64x64 con borde blanco
+        width = 64
+        height = 64
+        image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        dc = ImageDraw.Draw(image)
+        # Dibujar círculo rojo
+        dc.ellipse([4, 4, 60, 60], fill='#ff3b30', outline='white', width=4)
+        
+        def on_exit(icon, item):
+            icon.stop()
+            task_queue.put({'action': 'exit'})
+            
+        def on_restart(icon, item):
+            log_print("Solicitando reinicio del dictador...")
+            # Lanzar un nuevo proceso y ordenar la salida del actual
+            subprocess.Popen([sys.executable, __file__])
+            icon.stop()
+            task_queue.put({'action': 'exit'})
+            
+        def on_logs(icon, item):
+            try:
+                subprocess.Popen(['notepad.exe', LOG_PATH])
+            except Exception as e:
+                log_print(f"Error al abrir logs: {e}")
+
+        menu = pystray.Menu(
+            pystray.MenuItem('Dictador Activo 🎙️', lambda: None, enabled=False),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem('Ver Logs 📝', on_logs),
+            pystray.MenuItem('Reiniciar 🔄', on_restart),
+            pystray.MenuItem('Salir ❌', on_exit)
+        )
+        
+        icon = pystray.Icon("am_whisper", image, "AM Voice Dictation", menu)
+        icon.run()
+    except Exception as e:
+        log_print(f"Error al inicializar System Tray: {e}")
+        log_print(traceback.format_exc())
 
 
 def main():
@@ -370,6 +421,11 @@ def main():
     
     # Programar el lector de la cola en el bucle principal
     root.after(50, poll_queue)
+    
+    # Iniciar System Tray
+    tray_thread = threading.Thread(target=setup_tray)
+    tray_thread.daemon = True
+    tray_thread.start()
     
     try:
         root.mainloop()
