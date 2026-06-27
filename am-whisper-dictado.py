@@ -239,10 +239,10 @@ def transcribe(wav_path):
                 log_print(f"✨ Texto transcripto con éxito: '{text}'")
                 set_clipboard_text(text)
                 
-                # Escribir el texto directamente en el cursor
-                log_print("Escribiendo texto directamente en el cursor...")
-                time.sleep(0.1)
-                keyboard.write(text)
+                # Simular Ctrl + V
+                log_print("Pegando texto en ventana activa (Ctrl+V)...")
+                time.sleep(0.15)
+                keyboard.press_and_release('ctrl+v')
                 
                 winsound.Beep(1200, 100)
                 time.sleep(0.05)
