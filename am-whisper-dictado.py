@@ -205,6 +205,7 @@ def start_recording():
 
 def transcribe(wav_path):
     """Llama al binario de Whisper para transcribir y escribe el resultado."""
+    global overlay
     log_print("⏳ Iniciando proceso de transcripción...")
     
     cmd = [
@@ -240,7 +241,6 @@ def transcribe(wav_path):
                 set_clipboard_text(text)
                 
                 # Destruir el HUD flotante antes de pegar para restaurar el foco del cursor al chat
-                global overlay
                 if overlay:
                     log_print("Cerrando HUD flotante antes de pegar...")
                     overlay.stop()
@@ -269,7 +269,6 @@ def transcribe(wav_path):
         if os.path.exists(wav_path):
             os.remove(wav_path)
     finally:
-        global overlay
         if overlay:
             overlay.stop()
             overlay = None
