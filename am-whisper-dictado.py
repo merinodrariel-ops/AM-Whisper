@@ -239,10 +239,10 @@ def transcribe(wav_path):
                 log_print(f"✨ Texto transcripto con éxito: '{text}'")
                 set_clipboard_text(text)
                 
-                # Simular Ctrl + V
-                log_print("Pegando texto en ventana activa (Ctrl+V)...")
-                time.sleep(0.15)
-                keyboard.press_and_release('ctrl+v')
+                # Escribir el texto directamente en el cursor
+                log_print("Escribiendo texto directamente en el cursor...")
+                time.sleep(0.1)
+                keyboard.write(text)
                 
                 winsound.Beep(1200, 100)
                 time.sleep(0.05)
@@ -328,21 +328,21 @@ def main():
     log_print("Presiona [Ctrl + C] en esta consola para cerrar el dictado.")
     log_print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
     
-    global key_is_pressed
-    key_is_pressed = False
+    global last_toggle_time
+    last_toggle_time = 0
     
     def handle_key_event(e):
-        global key_is_pressed
+        global last_toggle_time
         is_target_key = (e.scan_code == 541 or e.name == 'alt gr' or e.name == 'right windows')
         if not is_target_key:
             return
             
         if e.event_type == 'down':
-            if not key_is_pressed:
-                key_is_pressed = True
+            now = time.time()
+            # Si pasaron más de 800ms desde el último evento, permitimos togglear
+            if now - last_toggle_time > 0.8:
+                last_toggle_time = now
                 toggle_recording()
-        elif e.event_type == 'up':
-            key_is_pressed = False
             
     keyboard.hook(handle_key_event)
     
