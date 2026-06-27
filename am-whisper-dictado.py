@@ -127,17 +127,14 @@ class DictationOverlay:
 
 
 def set_clipboard_text(text):
-    """Copia texto al portapapeles de Windows de forma nativa usando ctypes en UTF-16."""
+    """Copia texto al portapapeles de Windows de forma segura usando tkinter."""
     try:
-        ctypes.windll.user32.OpenClipboard(0)
-        ctypes.windll.user32.EmptyClipboard()
-        encoded = text.encode('utf-16-le')
-        hcd = ctypes.windll.kernel32.GlobalAlloc(2, len(encoded) + 2)
-        ptr = ctypes.windll.kernel32.GlobalLock(hcd)
-        ctypes.cdll.msvcrt.memcpy(ptr, encoded, len(encoded))
-        ctypes.windll.kernel32.GlobalUnlock(hcd)
-        ctypes.windll.user32.SetClipboardData(13, hcd)
-        ctypes.windll.user32.CloseClipboard()
+        root = tk.Tk()
+        root.withdraw()
+        root.clipboard_clear()
+        root.clipboard_append(text)
+        root.update() # necesario para que persista
+        root.destroy()
         log_print(f"📋 Copiado al portapapeles: '{text}'")
     except Exception as e:
         log_print(f"❌ Error al copiar al portapapeles: {e}")
