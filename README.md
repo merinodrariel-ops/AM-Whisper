@@ -1,77 +1,82 @@
 # AM-Whisper
 
-Sistema de transcripción de voz local usando whisper.cpp + Hammerspoon para Mac.
-Gratis, sin internet, sin suscripción. Transcripción casi instantánea con aceleración Metal en Apple Silicon.
+Sistema de dictado por voz y transcripción local, rápido, privado y gratuito, optimizado para **macOS** (Hammerspoon + Metal GPU) y **Windows** (Python + OpenBLAS CPU).
 
-## Cómo funciona
+## Características principales
 
-- Presioná **Command derecho** para empezar a grabar
-- Hablá lo que quieras
-- Presioná **Command derecho** de nuevo para parar y transcribir
-- Presioná **Escape** para cancelar una grabación o una transcripción en curso
-- El texto se pega automáticamente donde tenés el cursor
-- Mientras grabás aparece un medidor de audio en la parte inferior de la pantalla
-- Cada dictado queda respaldado en `~/Documents/AM-Whisper-Rescates` como `.wav` y, si Whisper llegó a transcribir, como `.txt`
+- **100% Local**: No requiere conexión a Internet ni envía tus datos de audio a servidores externos.
+- **Precisión Profesional**: Utiliza el modelo de vanguardia **`large-v3-turbo`** (~1.5 GB), optimizado para español de España y Latinoamérica.
+- **HUD Visual**: Interfaz flotante con indicador circular de estado (`GRABANDO...` / `TRANSCRIBIENDO...`) y medidor de volumen en tiempo real que reacciona a tu voz.
+- **Foco del Teclado**: No roba el foco de tu ventana activa, lo que permite pegar el texto dictado de forma instantánea.
+- **Acceso Rápido**: Mapeado a la tecla física a la derecha de la barra espaciadora (`AltGr` en Windows, `Command Derecho` en macOS).
 
-## Transcripción de Videos (Nuevo 🎬)
+---
 
-Para transcribir un video que ya tenés descargado:
+## 💻 Versión WINDOWS (Python)
 
-1. Abrí la terminal
-2. Escribí `node ` y arrastrá el script `video-transcript.mjs`
-3. Arrastrá el video que querés transcribir
-4. Presioná `Enter`
+### Requisitos previos
+- **Python 3.14** (o versión superior) instalado en la máquina.
+- Las librerías necesarias se instalan de forma estándar en Windows (`sounddevice`, `soundfile`, `numpy`, `keyboard`).
 
-Ejemplo:
-```bash
-node video-transcript.mjs mi_video.mp4
-```
+### Instalación rápida (Windows)
 
-El resultado se guardará como un archivo `.txt` en la misma carpeta del video.
+1. **Clonar este repositorio** en tu carpeta de preferencia.
+2. **Descargar el modelo large-v3-turbo** (~1.5 GB) y colocarlo en la caché del sistema:
+   * Crea la carpeta `C:\Users\<TuUsuario>\.cache\whisper\` si no existe.
+   * Descarga el archivo [ggml-large-v3-turbo.bin](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin) y guárdalo allí.
+3. El repositorio ya incluye los binarios de Whisper compilados y optimizados con **OpenBLAS** en la carpeta `bin/`.
 
-## Características
+### Uso y Funcionamiento (Windows)
 
-- **Velocidad**: whisper.cpp con Metal GPU — transcripción en ~1-2 segundos
-- **Precisión**: modelo large-v3-turbo, optimizado para español
-- **Prompts contextuales**: detecta la app activa y ajusta el vocabulario automáticamente
-  - **Antigravity** (consultorio): términos médicos
-  - **Cursor / VS Code**: terminología de desarrollo
-  - **Claude**: contexto de IA
-- **Medidor de audio**: barra visual en tiempo real mientras grabás
-- **Cancelación rápida**: `Escape` aborta la grabación o la transcripción actual
+1. Haz doble clic en el archivo **`Iniciar-Dictado.bat`**.
+   * *Nota: Solicitará permisos de Administrador automáticamente. Esto es obligatorio para poder simular pulsaciones de teclas (`Ctrl + V`) en cualquier aplicación elevada como editores médicos o consolas.*
+2. Coloca el cursor en el chat de texto o bloc de notas donde desees escribir.
+3. Presiona la tecla **`AltGr`** (la de la derecha del espacio):
+   * Sonará un pitido rápido y aparecerá el HUD flotante `🔴 GRABANDO...` en la parte inferior de tu pantalla.
+   * Habla con normalidad. La barra verde se moverá según la intensidad de tu voz.
+4. Presiona **`AltGr`** de nuevo para terminar:
+   * Sonará otro pitido, la barra cambiará a `⏳ TRANSCRIBIENDO...` con un círculo amarillo.
+   * La transcripción terminará en 1-2 segundos y el texto se pegará solo en tu cursor.
 
-## Instalación en Mac nueva
+### Inicio automático en segundo plano
+El instalador configura automáticamente un acceso directo en tu carpeta de Inicio de Windows (`Startup`) para iniciar `am-whisper-dictado.py` de forma 100% invisible en segundo plano cada vez que se encienda la computadora.
 
-### 1. Instalar Homebrew (si no lo tenés)
+---
 
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+## 🍎 Versión macOS (Hammerspoon)
 
-Luego agregar al PATH:
+### Cómo funciona (macOS)
+- Presiona **Command derecho** para empezar a grabar (sonará un pitido y se mostrará la barra de audio flotante).
+- Habla y vuelve a presionar **Command derecho** para parar. El texto se pegará de inmediato.
+- Presiona **Escape** para cancelar una grabación en curso.
 
-    echo >> ~/.zprofile && echo 'eval "$(/opt/homebrew/bin/brew shellenv zsh)"' >> ~/.zprofile && eval "$(/opt/homebrew/bin/brew shellenv zsh)"
+### Instalación rápida (Mac)
 
-### 2. Instalar dependencias
+1. **Instalar Homebrew** (si no lo tienes):
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+2. **Instalar dependencias**:
+   ```bash
+   brew install sox whisper-cpp && brew install --cask hammerspoon
+   ```
+3. **Descargar el modelo large-v3-turbo** (~1.5 GB):
+   ```bash
+   mkdir -p ~/.cache/whisper && cd ~/.cache/whisper && curl -L "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin" -o ggml-large-v3-turbo.bin
+   ```
+4. **Instalar el script**:
+   * Copia o enlaza el archivo `init.lua` de este repositorio en tu carpeta local `~/.hammerspoon/init.lua`.
+5. **Activar**:
+   * Abre Hammerspoon desde Aplicaciones.
+   * Habilita los accesos de Accesibilidad si te los solicita.
+   * Haz clic en el icono de Hammerspoon en la barra de menús superior y selecciona **Reload Config**.
 
-    brew install sox whisper-cpp && brew install --cask hammerspoon
+---
 
-### 3. Bajar el modelo large-v3-turbo (~1.5 GB)
+## 🎬 Transcripción de Videos (Script NodeJS)
 
-    mkdir -p ~/.cache/whisper && cd ~/.cache/whisper && curl -L "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin" -o ggml-large-v3-turbo.bin
+Si deseas transcribir un archivo de video completo localmente (`.mp4`, `.mov`, etc.):
 
-### 4. Bajar el script y enlazarlo
-
-    mkdir -p ~/.hammerspoon
-    curl -o ~/.hammerspoon/init.lua https://raw.githubusercontent.com/merinodrariel-ops/AM-Whisper/main/init.lua
-
-### 5. Activar
-
-1. Abrí Hammerspoon desde Aplicaciones
-2. Habilitá Accesibilidad cuando te lo pida
-3. Clic en el ícono de Hammerspoon → Reload Config
-4. Listo — aparece "Whisper listo ⚡ Command derecho para grabar"
-
-## Notas
-
-- Todo corre local, nada sale a internet
-- Compatible con Mac Apple Silicon (M1/M2/M3/M4) — usa Metal para máxima velocidad
-- Para agregar prompts contextuales de otras apps, editá el array `contextPrompts` en `init.lua`
+1. Abre una terminal.
+2. Ejecuta `node video-transcript.mjs <ruta-del-video>`.
+3. El resultado se guardará en un archivo `.txt` en el mismo directorio del video original.
