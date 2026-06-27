@@ -29,13 +29,18 @@ audio_data = []
 audio_thread = None
 last_toggle_time = 0
 toggle_lock = threading.Lock()
-key_is_pressed = False
-overlay = None
+
+# Cola de tareas para comunicar hilos secundarios con el hilo principal
+task_queue = queue.Queue()
 
 # Rutas locales de Whisper
 WHISPER_BIN = r"C:\Users\drari\Documents\Proyectos IA\AM-Whisper\bin\whisper-cli.exe"
 MODEL_PATH = os.path.expanduser(r"~\\.cache\whisper\ggml-large-v3-turbo.bin")
 LOG_PATH = r"C:\Users\drari\Documents\Proyectos IA\AM-Whisper\dictado.log"
+
+# Referencias globales del hilo principal
+root = None
+overlay_win = None
 
 def log_print(msg):
     """Escribe en la consola y en el archivo de log."""
@@ -47,51 +52,35 @@ def log_print(msg):
         pass
 
 
-class DictationOverlay:
-    """HUD flotante semi-transparente similar a la versión de macOS."""
-    def __init__(self):
-        self.root = None
-        self.canvas = None
-        self.dot = None
-        self.label = None
-        self.meter_level = None
-        self.thread = None
-        self.running = False
-        self.blink_state = True
-        
-    def start(self):
-        self.running = True
-        self.thread = threading.Thread(target=self._run)
-        self.thread.daemon = True
-        self.thread.start()
-        
-    def _run(self):
-        self.root = tk.Tk()
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
-        self.root.config(bg="black")
-        self.root.attributes("-transparentcolor", "black")
+class OverlayWindow(tk.Toplevel):
+    """HUD flotante semi-transparente que corre 100% en el hilo principal."""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.config(bg="black")
+        self.attributes("-transparentcolor", "black")
         
         w = 260
         h = 44
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
         x = (sw - w) // 2
         y = sh - 130
-        self.root.geometry(f"{w}x{h}+{x}+{y}")
+        self.geometry(f"{w}x{h}+{x}+{y}")
         
         # Evitar tomar el foco en Windows (WS_EX_NOACTIVATE)
-        self.root.update_idletasks()
+        self.update_idletasks()
         try:
-            hwnd = self.root.winfo_id()
+            hwnd = self.winfo_id()
             GWL_EXSTYLE = -20
             WS_EX_NOACTIVATE = 0x08000000
             style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
             ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE)
         except Exception as e:
             log_print(f"Error al configurar foco de ventana: {e}")
-        
-        self.canvas = tk.Canvas(self.root, width=w, height=h, bg="black", highlightthickness=0)
+            
+        self.canvas = tk.Canvas(self, width=w, height=h, bg="black", highlightthickness=0)
         self.canvas.pack()
         
         self.canvas.create_rectangle(1, 1, w-1, h-1, fill="#121212", outline="#2c2c2c", width=1)
@@ -101,54 +90,43 @@ class DictationOverlay:
         self.canvas.create_rectangle(170, 18, 246, 26, fill="#222222", outline="")
         self.meter_level = self.canvas.create_rectangle(170, 18, 170, 26, fill="#34c759", outline="")
         
+        self.blink_state = True
+        self.running = True
         self._blink()
-        self.root.mainloop()
         
     def _blink(self):
-        if self.running and self.root and self.canvas and self.dot:
+        if self.running and self.dot:
             color = "#ff3b30" if self.blink_state else "#331111"
             self.blink_state = not self.blink_state
             self.canvas.itemconfig(self.dot, fill=color)
-            self.root.after(500, self._blink)
+            self.after(500, self._blink)
             
     def update_volume(self, rms):
-        if self.running and self.root and self.canvas and self.meter_level:
+        if self.running and self.meter_level:
             val = min(rms / 0.04, 1.0)
             width = val * 76
-            self.root.after(0, lambda: self.canvas.coords(self.meter_level, 170, 18, 170 + int(width), 26))
+            self.canvas.coords(self.meter_level, 170, 18, 170 + int(width), 26)
             
     def set_transcribing(self):
-        if self.running and self.root:
-            self.root.after(0, self._set_transcribing_ui)
-            
-    def _set_transcribing_ui(self):
-        if self.canvas:
-            self.running = False
-            self.canvas.itemconfig(self.dot, fill="#ffcc00")
-            self.canvas.itemconfig(self.label, text="TRANSCRIBIENDO...")
-            self.canvas.coords(self.meter_level, 170, 18, 170, 26)
-            
-    def stop(self):
-        """Destruye el HUD flotante de forma segura."""
         self.running = False
-        if self.root:
-            try:
-                self.root.after(0, self.root.destroy)
-            except Exception:
-                pass
-            self.root = None
+        self.canvas.itemconfig(self.dot, fill="#ffcc00")
+        self.canvas.itemconfig(self.label, text="TRANSCRIBIENDO...")
+        self.canvas.coords(self.meter_level, 170, 18, 170, 26)
+        
+    def stop(self):
+        self.running = False
+        self.destroy()
 
 
 def set_clipboard_text(text):
-    """Copia texto al portapapeles de Windows de forma segura usando tkinter."""
+    """Copia texto al portapapeles de Windows de forma segura usando el root de tkinter del hilo principal."""
     try:
-        root = tk.Tk()
-        root.withdraw()
-        root.clipboard_clear()
-        root.clipboard_append(text)
-        root.update() # necesario para que persista
-        root.destroy()
-        log_print(f"📋 Copiado al portapapeles: '{text}'")
+        global root
+        if root:
+            root.clipboard_clear()
+            root.clipboard_append(text)
+            root.update()
+            log_print(f"📋 Copiado al portapapeles: '{text}'")
     except Exception as e:
         log_print(f"❌ Error al copiar al portapapeles: {e}")
         log_print(traceback.format_exc())
@@ -160,10 +138,11 @@ def callback(indata, frames, time_info, status):
         log_print(f"Status micrófono: {status}")
     q.put(indata.copy())
     
-    global recording, overlay
-    if recording and overlay:
+    global recording
+    if recording:
         rms = np.sqrt(np.mean(indata**2))
-        overlay.update_volume(rms)
+        # Enviar nivel de volumen al hilo principal
+        task_queue.put({'action': 'volume', 'rms': rms})
 
 
 def record_thread():
@@ -186,19 +165,17 @@ def record_thread():
         log_print(traceback.format_exc())
         recording = False
         winsound.Beep(400, 500)
-        global overlay
-        if overlay:
-            overlay.stop()
-            overlay = None
+        # Indicar al hilo principal que cierre el overlay
+        task_queue.put({'action': 'stop_only'})
 
 
 def start_recording():
-    """Inicia la grabación y enciende el HUD flotante."""
-    global recording, audio_thread, overlay
+    """Inicia la grabación en segundo plano y notifica al hilo principal para mostrar el HUD."""
+    global recording, audio_thread
     recording = True
     
-    overlay = DictationOverlay()
-    overlay.start()
+    # Notificar al hilo principal para mostrar la interfaz
+    task_queue.put({'action': 'start_recording'})
     
     audio_thread = threading.Thread(target=record_thread)
     audio_thread.start()
@@ -206,8 +183,7 @@ def start_recording():
 
 
 def transcribe(wav_path):
-    """Llama al binario de Whisper para transcribir y escribe el resultado."""
-    global overlay
+    """Llama al binario de Whisper para transcribir en segundo plano."""
     log_print("⏳ Iniciando proceso de transcripción...")
     
     cmd = [
@@ -240,50 +216,34 @@ def transcribe(wav_path):
                 
             if text:
                 log_print(f"✨ Texto transcripto con éxito: '{text}'")
-                set_clipboard_text(text)
-                
-                # Destruir el HUD flotante antes de pegar para restaurar el foco del cursor al chat
-                if overlay:
-                    log_print("Cerrando HUD flotante antes de pegar...")
-                    overlay.stop()
-                    overlay = None
-                
-                # Simular Ctrl + V
-                log_print("Pegando texto en ventana activa (Ctrl+V)...")
-                time.sleep(0.2)
-                keyboard.press_and_release('ctrl+v')
-                
-                winsound.Beep(1200, 100)
-                time.sleep(0.05)
-                winsound.Beep(1200, 100)
+                # Mandar tarea de pegado al hilo principal
+                task_queue.put({'action': 'paste_and_stop', 'text': text})
             else:
                 log_print("⚠️ No se detectó ninguna palabra hablada (archivo vacío).")
                 winsound.Beep(500, 300)
+                task_queue.put({'action': 'stop_only'})
         else:
             log_print(f"❌ Error: El archivo txt '{txt_path}' no fue creado por whisper-cli.")
             winsound.Beep(500, 300)
             if os.path.exists(wav_path):
                 os.remove(wav_path)
+            task_queue.put({'action': 'stop_only'})
     except Exception as e:
         log_print(f"❌ Error durante la transcripción: {e}")
         log_print(traceback.format_exc())
         winsound.Beep(500, 500)
         if os.path.exists(wav_path):
             os.remove(wav_path)
-    finally:
-        if overlay:
-            overlay.stop()
-            overlay = None
-        log_print("Proceso de dictado finalizado.")
+        task_queue.put({'action': 'stop_only'})
 
 
 def stop_recording():
-    """Detiene la grabación y cambia el HUD a modo transcribiendo."""
-    global recording, overlay
+    """Detiene la grabación y dispara la transcripción en segundo plano."""
+    global recording
     recording = False
     
-    if overlay:
-        overlay.set_transcribing()
+    # Cambiar HUD a modo transcribiendo
+    task_queue.put({'action': 'set_transcribing'})
         
     if audio_thread:
         audio_thread.join()
@@ -298,9 +258,7 @@ def stop_recording():
     else:
         log_print("⚠️ Grabación detenida pero no hay datos de audio recopilados.")
         winsound.Beep(500, 300)
-        if overlay:
-            overlay.stop()
-            overlay = None
+        task_queue.put({'action': 'stop_only'})
 
 
 def toggle_recording(e=None):
@@ -322,7 +280,61 @@ def toggle_recording(e=None):
             stop_recording()
 
 
+def poll_queue():
+    """Función periódica en el hilo principal para ejecutar operaciones de interfaz y pegado."""
+    global overlay_win, root
+    try:
+        while True:
+            # Leer sin bloquear
+            task = task_queue.get_nowait()
+            action = task['action']
+            
+            if action == 'start_recording':
+                if not overlay_win:
+                    overlay_win = OverlayWindow(root)
+            elif action == 'set_transcribing':
+                if overlay_win:
+                    overlay_win.set_transcribing()
+            elif action == 'volume':
+                if overlay_win:
+                    overlay_win.update_volume(task['rms'])
+            elif action == 'paste_and_stop':
+                # 1. Cerrar interfaz flotante primero
+                if overlay_win:
+                    overlay_win.stop()
+                    overlay_win = None
+                
+                # 2. Copiar texto al portapapeles
+                text = task['text']
+                set_clipboard_text(text)
+                
+                # 3. Simular pegado
+                log_print("Pegando texto en ventana activa (Ctrl+V)...")
+                time.sleep(0.2)
+                keyboard.press_and_release('ctrl+v')
+                
+                # Pitidos
+                winsound.Beep(1200, 100)
+                time.sleep(0.05)
+                winsound.Beep(1200, 100)
+                log_print("Proceso de dictado finalizado.")
+                
+            elif action == 'stop_only':
+                if overlay_win:
+                    overlay_win.stop()
+                    overlay_win = None
+                log_print("Proceso de dictado cancelado/finalizado con error.")
+                
+    except queue.Empty:
+        pass
+    
+    # Volver a programar el sondeo de cola en 50ms
+    if root:
+        root.after(50, poll_queue)
+
+
 def main():
+    global root
     # Limpiar log anterior al iniciar
     try:
         if os.path.exists(LOG_PATH):
@@ -352,8 +364,15 @@ def main():
             
     keyboard.hook(handle_key_event)
     
+    # Iniciar root oculto de Tkinter en el hilo principal
+    root = tk.Tk()
+    root.withdraw()
+    
+    # Programar el lector de la cola en el bucle principal
+    root.after(50, poll_queue)
+    
     try:
-        keyboard.wait()
+        root.mainloop()
     except KeyboardInterrupt:
         log_print("\nCerrando dictado. ¡Hasta luego!")
 
