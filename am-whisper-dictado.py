@@ -300,7 +300,9 @@ def toggle_recording(e=None):
     global recording, last_toggle_time
     with toggle_lock:
         now = time.time()
-        if now - last_toggle_time < 0.5:
+        diff = now - last_toggle_time
+        if diff < 0.8:
+            log_print(f"Toggle ignorado por debounce ({diff:.2f}s < 0.8s).")
             return
         last_toggle_time = now
         
@@ -332,21 +334,13 @@ def main():
     last_toggle_time = 0
     
     def handle_key_event(e):
-        global last_toggle_time
         is_target_key = (e.scan_code == 541 or e.name == 'alt gr' or e.name == 'right windows')
         if not is_target_key:
             return
             
         log_print(f"Tecla detectada: {e.name} | ScanCode: {e.scan_code} | Tipo: {e.event_type}")
         if e.event_type == 'down':
-            now = time.time()
-            diff = now - last_toggle_time
-            log_print(f"Tipo: down. Tiempo desde último toggle: {diff:.2f}s")
-            if diff > 0.8:
-                last_toggle_time = now
-                toggle_recording()
-            else:
-                log_print("Ignorado por debounce (<0.8s)")
+            toggle_recording()
             
     keyboard.hook(handle_key_event)
     
