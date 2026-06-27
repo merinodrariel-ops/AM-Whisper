@@ -17,6 +17,7 @@ import time
 import os
 import subprocess
 import tkinter as tk
+import traceback
 
 # Configuración de audio
 samplerate = 16000
@@ -34,6 +35,16 @@ overlay = None
 # Rutas locales de Whisper
 WHISPER_BIN = r"C:\Users\drari\Documents\Proyectos IA\AM-Whisper\bin\whisper-cli.exe"
 MODEL_PATH = os.path.expanduser(r"~\\.cache\whisper\ggml-large-v3-turbo.bin")
+LOG_PATH = r"C:\Users\drari\Documents\Proyectos IA\AM-Whisper\dictado.log"
+
+def log_print(msg):
+    """Escribe en la consola y en el archivo de log."""
+    print(msg, flush=True)
+    try:
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+    except Exception:
+        pass
 
 
 class DictationOverlay:
@@ -59,14 +70,12 @@ class DictationOverlay:
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
         self.root.config(bg="black")
-        # Hacer que el color negro actúe como canal transparente
         self.root.attributes("-transparentcolor", "black")
         
         w = 260
         h = 44
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        # Centrado horizontalmente y arriba de la barra de tareas
         x = (sw - w) // 2
         y = sh - 130
         self.root.geometry(f"{w}x{h}+{x}+{y}")
@@ -74,16 +83,10 @@ class DictationOverlay:
         self.canvas = tk.Canvas(self.root, width=w, height=h, bg="black", highlightthickness=0)
         self.canvas.pack()
         
-        # Tarjeta gris oscuro de fondo con borde sutil
         self.canvas.create_rectangle(1, 1, w-1, h-1, fill="#121212", outline="#2c2c2c", width=1)
-        
-        # Círculo indicador (rojo por defecto)
         self.dot = self.canvas.create_oval(14, 14, 28, 28, fill="#ff3b30", outline="")
-        
-        # Texto
         self.label = self.canvas.create_text(38, 22, text="GRABANDO...", fill="#ffffff", font=("Segoe UI", 10, "bold"), anchor="w")
         
-        # Barra del medidor de volumen (Fondo + Activo)
         self.canvas.create_rectangle(170, 18, 246, 26, fill="#222222", outline="")
         self.meter_level = self.canvas.create_rectangle(170, 18, 170, 26, fill="#34c759", outline="")
         
@@ -91,7 +94,6 @@ class DictationOverlay:
         self.root.mainloop()
         
     def _blink(self):
-        """Hace parpadear el indicador circular rojo."""
         if self.running and self.root and self.canvas and self.dot:
             color = "#ff3b30" if self.blink_state else "#331111"
             self.blink_state = not self.blink_state
@@ -99,28 +101,23 @@ class DictationOverlay:
             self.root.after(500, self._blink)
             
     def update_volume(self, rms):
-        """Actualiza la barra de volumen según la intensidad."""
         if self.running and self.root and self.canvas and self.meter_level:
-            # Normalizar intensidad de voz (0.0 a 0.05 es normal)
             val = min(rms / 0.04, 1.0)
-            width = val * 76 # 76px de ancho máximo
+            width = val * 76
             self.root.after(0, lambda: self.canvas.coords(self.meter_level, 170, 18, 170 + int(width), 26))
             
     def set_transcribing(self):
-        """Cambia el diseño visual al modo de análisis de audio."""
         if self.running and self.root:
             self.root.after(0, self._set_transcribing_ui)
             
     def _set_transcribing_ui(self):
         if self.canvas:
-            self.running = False # Detiene el parpadeo
-            self.canvas.itemconfig(self.dot, fill="#ffcc00") # Círculo amarillo
+            self.running = False
+            self.canvas.itemconfig(self.dot, fill="#ffcc00")
             self.canvas.itemconfig(self.label, text="TRANSCRIBIENDO...")
-            # Vaciar el medidor de sonido
             self.canvas.coords(self.meter_level, 170, 18, 170, 26)
             
     def stop(self):
-        """Destruye el HUD flotante de forma segura."""
         self.running = False
         if self.root:
             self.root.after(0, self.root.destroy)
@@ -141,17 +138,18 @@ def set_clipboard_text(text):
         ctypes.windll.kernel32.GlobalUnlock(hcd)
         ctypes.windll.user32.SetClipboardData(13, hcd)
         ctypes.windll.user32.CloseClipboard()
+        log_print(f"📋 Copiado al portapapeles: '{text}'")
     except Exception as e:
-        print(f"Error al copiar al portapapeles: {e}", flush=True)
+        log_print(f"❌ Error al copiar al portapapeles: {e}")
+        log_print(traceback.format_exc())
 
 
 def callback(indata, frames, time_info, status):
     """Callback de entrada de audio para sounddevice."""
     if status:
-        print(status, flush=True)
+        log_print(f"Status micrófono: {status}")
     q.put(indata.copy())
     
-    # Calcular nivel en tiempo real para el HUD
     global recording, overlay
     if recording and overlay:
         rms = np.sqrt(np.mean(indata**2))
@@ -174,7 +172,8 @@ def record_thread():
                 except queue.Empty:
                     pass
     except Exception as e:
-        print(f"\n❌ Error al abrir el micrófono: {e}", flush=True)
+        log_print(f"❌ Error al abrir el micrófono: {e}")
+        log_print(traceback.format_exc())
         recording = False
         winsound.Beep(400, 500)
         global overlay
@@ -188,18 +187,17 @@ def start_recording():
     global recording, audio_thread, overlay
     recording = True
     
-    # Iniciar HUD flotante
     overlay = DictationOverlay()
     overlay.start()
     
     audio_thread = threading.Thread(target=record_thread)
     audio_thread.start()
-    print("\n🎤 Grabando... Habla ahora.", flush=True)
+    log_print("🎤 Grabación iniciada. Capturando audio...")
 
 
 def transcribe(wav_path):
     """Llama al binario de Whisper para transcribir y escribe el resultado."""
-    print("⏳ Transcribiendo...", flush=True)
+    log_print("⏳ Iniciando proceso de transcripción...")
     
     cmd = [
         WHISPER_BIN,
@@ -211,8 +209,12 @@ def transcribe(wav_path):
     ]
     
     try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
+        log_print(f"Ejecutando comando: {' '.join(cmd)}")
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        log_print(f"Resultado retorno: {res.returncode}")
+        if res.returncode != 0:
+            log_print(f"STDERR de Whisper: {res.stderr}")
+            
         txt_path = wav_path + ".txt"
         if os.path.exists(txt_path):
             with open(txt_path, "r", encoding="utf-8") as f:
@@ -221,40 +223,42 @@ def transcribe(wav_path):
             try:
                 os.remove(wav_path)
                 os.remove(txt_path)
-            except Exception:
-                pass
+                log_print("Limpieza de archivos temporales completada.")
+            except Exception as e:
+                log_print(f"Error al limpiar temporales: {e}")
                 
             if text:
-                print(f"✨ Transcrito: {text}", flush=True)
+                log_print(f"✨ Texto transcripto con éxito: '{text}'")
                 set_clipboard_text(text)
                 
                 # Simular Ctrl + V
-                time.sleep(0.1)
+                log_print("Pegando texto en ventana activa (Ctrl+V)...")
+                time.sleep(0.15)
                 keyboard.press_and_release('ctrl+v')
                 
-                # Doble pitido rápido de éxito
                 winsound.Beep(1200, 100)
                 time.sleep(0.05)
                 winsound.Beep(1200, 100)
             else:
-                print("⚠️ No se detectó ninguna palabra hablada.", flush=True)
+                log_print("⚠️ No se detectó ninguna palabra hablada (archivo vacío).")
                 winsound.Beep(500, 300)
         else:
-            print("❌ Error: No se generó el archivo de texto transcrito.", flush=True)
+            log_print(f"❌ Error: El archivo txt '{txt_path}' no fue creado por whisper-cli.")
             winsound.Beep(500, 300)
             if os.path.exists(wav_path):
                 os.remove(wav_path)
     except Exception as e:
-        print(f"❌ Error al ejecutar Whisper: {e}", flush=True)
+        log_print(f"❌ Error durante la transcripción: {e}")
+        log_print(traceback.format_exc())
         winsound.Beep(500, 500)
         if os.path.exists(wav_path):
             os.remove(wav_path)
     finally:
-        # Apagar y destruir el HUD flotante al terminar
         global overlay
         if overlay:
             overlay.stop()
             overlay = None
+        log_print("Proceso de dictado finalizado.")
 
 
 def stop_recording():
@@ -272,10 +276,11 @@ def stop_recording():
         full_audio = np.concatenate(audio_data, axis=0)
         temp_wav = "temp_dictado.wav"
         sf.write(temp_wav, full_audio, samplerate)
+        log_print(f"Audio guardado en temporales: '{temp_wav}' (Tamaño: {len(full_audio)} frames)")
         
         threading.Thread(target=transcribe, args=(temp_wav,)).start()
     else:
-        print("⚠️ No se grabó ningún audio.", flush=True)
+        log_print("⚠️ Grabación detenida pero no hay datos de audio recopilados.")
         winsound.Beep(500, 300)
         if overlay:
             overlay.stop()
@@ -287,7 +292,6 @@ def toggle_recording(e=None):
     global recording, last_toggle_time
     with toggle_lock:
         now = time.time()
-        # Evitar rebotes de tecla menores a 500ms
         if now - last_toggle_time < 0.5:
             return
         last_toggle_time = now
@@ -301,18 +305,24 @@ def toggle_recording(e=None):
 
 
 def main():
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("🎙️  AM VOICE DICTATION (Local Whisper Windows)")
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("Estado: Listo ⚡")
-    print("Hotkey: Presiona [Control Derecho] (AltGr) para grabar / detener.")
-    print("Presiona [Ctrl + C] en esta consola para cerrar el dictado.")
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+    # Limpiar log anterior al iniciar
+    try:
+        if os.path.exists(LOG_PATH):
+            os.remove(LOG_PATH)
+    except Exception:
+        pass
+
+    log_print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    log_print("🎙️  AM VOICE DICTATION (Local Whisper Windows)")
+    log_print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    log_print("Estado: Listo ⚡")
+    log_print("Hotkey: Presiona [Control Derecho] (AltGr) para grabar / detener.")
+    log_print("Presiona [Ctrl + C] en esta consola para cerrar el dictado.")
+    log_print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
     
     global key_is_pressed
     key_is_pressed = False
     
-    # Manejo robusto de pulsación de teclado para evitar auto-repeticiones
     def handle_key_event(e):
         global key_is_pressed
         is_target_key = (e.scan_code == 541 or e.name == 'alt gr' or e.name == 'right windows')
@@ -331,7 +341,7 @@ def main():
     try:
         keyboard.wait()
     except KeyboardInterrupt:
-        print("\nCerrando dictado. ¡Hasta luego!")
+        log_print("\nCerrando dictado. ¡Hasta luego!")
 
 if __name__ == "__main__":
     main()
