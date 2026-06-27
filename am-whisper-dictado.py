@@ -129,11 +129,13 @@ class DictationOverlay:
             self.canvas.coords(self.meter_level, 170, 18, 170, 26)
             
     def stop(self):
+        """Destruye el HUD flotante de forma segura."""
         self.running = False
         if self.root:
-            self.root.after(0, self.root.destroy)
-            if self.thread:
-                self.thread.join(timeout=0.5)
+            try:
+                self.root.after(0, self.root.destroy)
+            except Exception:
+                pass
             self.root = None
 
 
