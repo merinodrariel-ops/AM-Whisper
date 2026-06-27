@@ -2,9 +2,17 @@ import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { fileURLToPath } from 'url';
 
-const WHISPER_BIN = '/opt/homebrew/opt/whisper-cpp/bin/whisper-cli';
-const MODEL_PATH = path.join(os.homedir(), '.cache/whisper/ggml-large-v3-turbo.bin');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const isWin = os.platform() === 'win32';
+const WHISPER_BIN = isWin
+    ? path.join(__dirname, 'bin', 'whisper-cli.exe')
+    : '/opt/homebrew/opt/whisper-cpp/bin/whisper-cli';
+
+const MODEL_PATH = path.join(os.homedir(), '.cache', 'whisper', 'ggml-large-v3-turbo.bin');
 
 async function main() {
     const args = process.argv.slice(2);
@@ -35,7 +43,7 @@ async function main() {
         execSync(`ffmpeg -i "${videoPath}" -ar 16000 -ac 1 -c:a pcm_s16le "${tempAudioPath}" -y`, { stdio: 'ignore' });
 
         // 2. Transcribir
-        console.log('📝 Transcribiendo (usando GPU Metal)...');
+        console.log(isWin ? '📝 Transcribiendo (usando CPU optimizada OpenBLAS)...' : '📝 Transcribiendo (usando GPU Metal)...');
         // whisper-cli genera el txt automáticamente si pasamos -otxt
         execSync(`"${WHISPER_BIN}" -m "${MODEL_PATH}" -f "${tempAudioPath}" -otxt -l es`, { stdio: 'inherit' });
 
