@@ -16,6 +16,7 @@ import winsound
 import time
 import os
 import subprocess
+import tkinter as tk
 
 # Configuración de audio
 samplerate = 16000
@@ -27,41 +28,140 @@ audio_data = []
 audio_thread = None
 last_toggle_time = 0
 toggle_lock = threading.Lock()
+key_is_pressed = False
+overlay = None
 
 # Rutas locales de Whisper
 WHISPER_BIN = r"C:\Users\drari\Documents\Proyectos IA\AM-Whisper\bin\whisper-cli.exe"
 MODEL_PATH = os.path.expanduser(r"~\\.cache\whisper\ggml-large-v3-turbo.bin")
 
+
+class DictationOverlay:
+    """HUD flotante semi-transparente similar a la versión de macOS."""
+    def __init__(self):
+        self.root = None
+        self.canvas = None
+        self.dot = None
+        self.label = None
+        self.meter_level = None
+        self.thread = None
+        self.running = False
+        self.blink_state = True
+        
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(target=self._run)
+        self.thread.daemon = True
+        self.thread.start()
+        
+    def _run(self):
+        self.root = tk.Tk()
+        self.root.overrideredirect(True)
+        self.root.attributes("-topmost", True)
+        self.root.config(bg="black")
+        # Hacer que el color negro actúe como canal transparente
+        self.root.attributes("-transparentcolor", "black")
+        
+        w = 260
+        h = 44
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        # Centrado horizontalmente y arriba de la barra de tareas
+        x = (sw - w) // 2
+        y = sh - 130
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
+        
+        self.canvas = tk.Canvas(self.root, width=w, height=h, bg="black", highlightthickness=0)
+        self.canvas.pack()
+        
+        # Tarjeta gris oscuro de fondo con borde sutil
+        self.canvas.create_rectangle(1, 1, w-1, h-1, fill="#121212", outline="#2c2c2c", width=1)
+        
+        # Círculo indicador (rojo por defecto)
+        self.dot = self.canvas.create_oval(14, 14, 28, 28, fill="#ff3b30", outline="")
+        
+        # Texto
+        self.label = self.canvas.create_text(38, 22, text="GRABANDO...", fill="#ffffff", font=("Segoe UI", 10, "bold"), anchor="w")
+        
+        # Barra del medidor de volumen (Fondo + Activo)
+        self.canvas.create_rectangle(170, 18, 246, 26, fill="#222222", outline="")
+        self.meter_level = self.canvas.create_rectangle(170, 18, 170, 26, fill="#34c759", outline="")
+        
+        self._blink()
+        self.root.mainloop()
+        
+    def _blink(self):
+        """Hace parpadear el indicador circular rojo."""
+        if self.running and self.root and self.canvas and self.dot:
+            color = "#ff3b30" if self.blink_state else "#331111"
+            self.blink_state = not self.blink_state
+            self.canvas.itemconfig(self.dot, fill=color)
+            self.root.after(500, self._blink)
+            
+    def update_volume(self, rms):
+        """Actualiza la barra de volumen según la intensidad."""
+        if self.running and self.root and self.canvas and self.meter_level:
+            # Normalizar intensidad de voz (0.0 a 0.05 es normal)
+            val = min(rms / 0.04, 1.0)
+            width = val * 76 # 76px de ancho máximo
+            self.root.after(0, lambda: self.canvas.coords(self.meter_level, 170, 18, 170 + int(width), 26))
+            
+    def set_transcribing(self):
+        """Cambia el diseño visual al modo de análisis de audio."""
+        if self.running and self.root:
+            self.root.after(0, self._set_transcribing_ui)
+            
+    def _set_transcribing_ui(self):
+        if self.canvas:
+            self.running = False # Detiene el parpadeo
+            self.canvas.itemconfig(self.dot, fill="#ffcc00") # Círculo amarillo
+            self.canvas.itemconfig(self.label, text="TRANSCRIBIENDO...")
+            # Vaciar el medidor de sonido
+            self.canvas.coords(self.meter_level, 170, 18, 170, 26)
+            
+    def stop(self):
+        """Destruye el HUD flotante de forma segura."""
+        self.running = False
+        if self.root:
+            self.root.after(0, self.root.destroy)
+            if self.thread:
+                self.thread.join(timeout=0.5)
+            self.root = None
+
+
 def set_clipboard_text(text):
     """Copia texto al portapapeles de Windows de forma nativa usando ctypes en UTF-16."""
     try:
-        # Abrir portapapeles
         ctypes.windll.user32.OpenClipboard(0)
         ctypes.windll.user32.EmptyClipboard()
-        # Codificar en UTF-16 Le
         encoded = text.encode('utf-16-le')
-        # Reservar memoria global
         hcd = ctypes.windll.kernel32.GlobalAlloc(2, len(encoded) + 2)
         ptr = ctypes.windll.kernel32.GlobalLock(hcd)
         ctypes.cdll.msvcrt.memcpy(ptr, encoded, len(encoded))
         ctypes.windll.kernel32.GlobalUnlock(hcd)
-        # 13 es CF_UNICODETEXT
         ctypes.windll.user32.SetClipboardData(13, hcd)
         ctypes.windll.user32.CloseClipboard()
     except Exception as e:
-        print(f"Error al copiar al portapapeles: {e}")
+        print(f"Error al copiar al portapapeles: {e}", flush=True)
+
 
 def callback(indata, frames, time_info, status):
     """Callback de entrada de audio para sounddevice."""
     if status:
         print(status, flush=True)
     q.put(indata.copy())
+    
+    # Calcular nivel en tiempo real para el HUD
+    global recording, overlay
+    if recording and overlay:
+        rms = np.sqrt(np.mean(indata**2))
+        overlay.update_volume(rms)
+
 
 def record_thread():
     """Hilo encargado de capturar el audio del micrófono."""
     global audio_data, recording
     audio_data = []
-    # Vaciar la cola por si acaso
     while not q.empty():
         q.get()
         
@@ -74,34 +174,43 @@ def record_thread():
                 except queue.Empty:
                     pass
     except Exception as e:
-        print(f"\n❌ Error al abrir el micrófono: {e}")
+        print(f"\n❌ Error al abrir el micrófono: {e}", flush=True)
         recording = False
         winsound.Beep(400, 500)
+        global overlay
+        if overlay:
+            overlay.stop()
+            overlay = None
+
 
 def start_recording():
-    """Inicia la grabación en un hilo separado."""
-    global recording, audio_thread
+    """Inicia la grabación y enciende el HUD flotante."""
+    global recording, audio_thread, overlay
     recording = True
+    
+    # Iniciar HUD flotante
+    overlay = DictationOverlay()
+    overlay.start()
+    
     audio_thread = threading.Thread(target=record_thread)
     audio_thread.start()
-    print("\n🎤 Grabando... Habla ahora. Presiona [Control Derecho] para terminar.", flush=True)
+    print("\n🎤 Grabando... Habla ahora.", flush=True)
+
 
 def transcribe(wav_path):
     """Llama al binario de Whisper para transcribir y escribe el resultado."""
     print("⏳ Transcribiendo...", flush=True)
     
-    # Configuración de argumentos de whisper-cli
     cmd = [
         WHISPER_BIN,
         "-m", MODEL_PATH,
         "-f", wav_path,
         "-otxt",
         "-l", "es",
-        "-nt" # Deshabilitar timestamps
+        "-nt"
     ]
     
     try:
-        # Ejecutar de forma silenciosa
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         txt_path = wav_path + ".txt"
@@ -109,7 +218,6 @@ def transcribe(wav_path):
             with open(txt_path, "r", encoding="utf-8") as f:
                 text = f.read().strip()
             
-            # Limpiar archivos temporales
             try:
                 os.remove(wav_path)
                 os.remove(txt_path)
@@ -118,14 +226,13 @@ def transcribe(wav_path):
                 
             if text:
                 print(f"✨ Transcrito: {text}", flush=True)
-                # Copiar al portapapeles
                 set_clipboard_text(text)
                 
-                # Simular Ctrl + V para pegar en la ventana activa
+                # Simular Ctrl + V
                 time.sleep(0.1)
                 keyboard.press_and_release('ctrl+v')
                 
-                # Doble beep rápido indicando éxito
+                # Doble pitido rápido de éxito
                 winsound.Beep(1200, 100)
                 time.sleep(0.05)
                 winsound.Beep(1200, 100)
@@ -142,11 +249,22 @@ def transcribe(wav_path):
         winsound.Beep(500, 500)
         if os.path.exists(wav_path):
             os.remove(wav_path)
+    finally:
+        # Apagar y destruir el HUD flotante al terminar
+        global overlay
+        if overlay:
+            overlay.stop()
+            overlay = None
+
 
 def stop_recording():
-    """Detiene la grabación y dispara la transcripción."""
-    global recording
+    """Detiene la grabación y cambia el HUD a modo transcribiendo."""
+    global recording, overlay
     recording = False
+    
+    if overlay:
+        overlay.set_transcribing()
+        
     if audio_thread:
         audio_thread.join()
         
@@ -155,18 +273,21 @@ def stop_recording():
         temp_wav = "temp_dictado.wav"
         sf.write(temp_wav, full_audio, samplerate)
         
-        # Ejecutar transcripción en un hilo para no bloquear el listener de teclado
         threading.Thread(target=transcribe, args=(temp_wav,)).start()
     else:
         print("⚠️ No se grabó ningún audio.", flush=True)
         winsound.Beep(500, 300)
+        if overlay:
+            overlay.stop()
+            overlay = None
+
 
 def toggle_recording(e=None):
     """Manejador de la pulsación de hotkey."""
     global recording, last_toggle_time
     with toggle_lock:
         now = time.time()
-        # Evitar doble disparo por rebote de tecla (500ms)
+        # Evitar rebotes de tecla menores a 500ms
         if now - last_toggle_time < 0.5:
             return
         last_toggle_time = now
@@ -178,23 +299,35 @@ def toggle_recording(e=None):
             winsound.Beep(800, 150)
             stop_recording()
 
+
 def main():
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print("🎙️  AM VOICE DICTATION (Local Whisper Windows)")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print("Estado: Listo ⚡")
-    print("Hotkey: Presiona [Control Derecho] (Right Ctrl) para grabar / detener.")
+    print("Hotkey: Presiona [Control Derecho] (AltGr) para grabar / detener.")
     print("Presiona [Ctrl + C] en esta consola para cerrar el dictado.")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
     
-    def handle_key_event(e):
-        if e.event_type == 'down':
-            if e.scan_code == 541 or e.name == 'alt gr' or e.name == 'right windows':
-                toggle_recording()
+    global key_is_pressed
+    key_is_pressed = False
     
+    # Manejo robusto de pulsación de teclado para evitar auto-repeticiones
+    def handle_key_event(e):
+        global key_is_pressed
+        is_target_key = (e.scan_code == 541 or e.name == 'alt gr' or e.name == 'right windows')
+        if not is_target_key:
+            return
+            
+        if e.event_type == 'down':
+            if not key_is_pressed:
+                key_is_pressed = True
+                toggle_recording()
+        elif e.event_type == 'up':
+            key_is_pressed = False
+            
     keyboard.hook(handle_key_event)
     
-    # Mantener el script corriendo
     try:
         keyboard.wait()
     except KeyboardInterrupt:
