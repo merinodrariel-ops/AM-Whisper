@@ -187,9 +187,12 @@ def main():
     print("Presiona [Ctrl + C] en esta consola para cerrar el dictado.")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
     
-    # Registrar tecla global (AltGr y Windows Derecho)
-    keyboard.on_press_key("alt gr", toggle_recording)
-    keyboard.on_press_key("right windows", toggle_recording)
+    def handle_key_event(e):
+        if e.event_type == 'down':
+            if e.scan_code == 541 or e.name == 'alt gr' or e.name == 'right windows':
+                toggle_recording()
+    
+    keyboard.hook(handle_key_event)
     
     # Mantener el script corriendo
     try:
