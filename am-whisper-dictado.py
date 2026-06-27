@@ -337,12 +337,16 @@ def main():
         if not is_target_key:
             return
             
+        log_print(f"Tecla detectada: {e.name} | ScanCode: {e.scan_code} | Tipo: {e.event_type}")
         if e.event_type == 'down':
             now = time.time()
-            # Si pasaron más de 800ms desde el último evento, permitimos togglear
-            if now - last_toggle_time > 0.8:
+            diff = now - last_toggle_time
+            log_print(f"Tipo: down. Tiempo desde último toggle: {diff:.2f}s")
+            if diff > 0.8:
                 last_toggle_time = now
                 toggle_recording()
+            else:
+                log_print("Ignorado por debounce (<0.8s)")
             
     keyboard.hook(handle_key_event)
     
